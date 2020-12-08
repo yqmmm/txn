@@ -1,6 +1,7 @@
 package txn
 
 import (
+	"fmt"
 	"math/rand"
 )
 
@@ -23,15 +24,15 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 
 	s := &SmallBank{
 		db:        NewDb(),
-		customers: make([]string, config.Customers),
+		customers: make([]string, 0),
 	}
 
 	customers := make(map[string]bool)
 	ids := make(map[string]bool)
 	for i := 0; i < config.Customers; i++ {
-		name := randSeq(8)
+		name := randSeq(5)
 		for customers[name] {
-			name = randSeq(8)
+			name = randSeq(5)
 		}
 		customers[name] = true
 
@@ -53,21 +54,41 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 	return s
 }
 
-func (s *SmallBank) Test() {
+func (s *SmallBank) Test() error {
 	name := s.customers[rand.Intn(len(s.customers))]
 
+	var err error
 	switch idx := rand.Intn(5); idx {
 	case 0:
-		s.db.Bal(name)
+		_, err = s.db.Bal(name)
 	case 1:
-		s.db.DepositChecking(name, rand.Intn(100))
+		err = s.db.DepositChecking(name, rand.Intn(100))
 	case 2:
-		s.db.TransactSaving(name, rand.Intn(100))
+		err = s.db.TransactSaving(name, rand.Intn(100))
 	case 3:
 		anotherName := s.customers[rand.Intn(len(s.customers))]
-		s.db.Amalgamate(name, anotherName)
+		err = s.db.Amalgamate(name, anotherName)
 	case 4:
-		s.db.WriteCheck(name, rand.Intn(100))
+		err = s.db.WriteCheck(name, rand.Intn(100))
+	}
+
+	return err
+}
+
+func (s *SmallBank) Check() {
+	expected := len(s.customers) * 2000
+	total := 0
+
+	txn := s.db.Txn()
+	for _, c := range s.customers {
+		v, _ := txn.GetInt("saving:" + c)
+		total += v
+	}
+
+	if expected == total {
+		fmt.Println("Right!")
+	} else {
+		fmt.Printf("Wrong! expected :%d, got %d\n", expected, total)
 	}
 }
 
@@ -89,7 +110,6 @@ func (db *DB) Bal(name string) (int, error) {
 	}
 
 	txn.Commit()
-
 	return savingBalance + checkingBalance, nil
 }
 
@@ -107,9 +127,13 @@ func (db *DB) DepositChecking(name string, value int) error {
 		return err
 	}
 
-	txn.Commit()
+	err = txn.UpdateInt("checking:"+customerId, checkingBalance+value)
+	if err != nil {
+		return err
+	}
 
-	return txn.UpdateInt(customerId, checkingBalance+value)
+	txn.Commit()
+	return nil
 }
 
 // rollback if account do not exists or **result** is negative
@@ -126,9 +150,13 @@ func (db *DB) TransactSaving(name string, value int) error {
 		return err
 	}
 
-	txn.Commit()
+	err = txn.UpdateInt("saving:"+customerId, checkingBalance+value)
+	if err != nil {
+		return err
+	}
 
-	return txn.UpdateInt(customerId, checkingBalance+value)
+	txn.Commit()
+	return nil
 }
 
 func (db *DB) Amalgamate(from, to string) error {
@@ -200,10 +228,11 @@ func (db *DB) WriteCheck(name string, value int) error {
 		subtract += 1
 	}
 
-	err = txn.UpdateInt("checking:"+name, checkingBalance-subtract)
+	err = txn.UpdateInt("checking:"+customerId, checkingBalance-subtract)
 	if err != nil {
 		return err
 	}
 
+	txn.Commit()
 	return nil
 }

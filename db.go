@@ -1,7 +1,6 @@
 package txn
 
 import (
-	"errors"
 	"strconv"
 	"sync"
 )
@@ -21,6 +20,14 @@ type Txn struct {
 	wLocks map[*sync.RWMutex]bool
 }
 
+type NotFoundError struct {
+	key string
+}
+
+func (e NotFoundError) Error() string {
+	return "Not Found: " + e.key
+}
+
 func NewDb() *DB {
 	return &DB{
 		store: make(map[string]*Record),
@@ -38,24 +45,28 @@ func (db *DB) Txn() Txn {
 func (txn *Txn) Begin() {
 }
 
+// Must be called or there will be lock unreleased
 func (txn *Txn) Commit() {
 	for rLock := range txn.rLocks {
 		rLock.RUnlock()
+		delete(txn.rLocks, rLock)
 	}
 	for wLock := range txn.wLocks {
 		wLock.Unlock()
+		delete(txn.wLocks, wLock)
 	}
 }
 
 func (txn *Txn) Get(k string) (string, error) {
 	r := txn.db.store[k]
 	if r == nil {
-		return "", errors.New("NotFound")
+		return "", NotFoundError{key: k}
 	}
 
-	if !txn.rLocks[&r.mutex] && !txn.wLocks[&r.mutex] {
+	mutex := &r.mutex
+	if !txn.rLocks[mutex] && !txn.wLocks[mutex] {
 		r.mutex.RLock()
-		txn.rLocks[&r.mutex] = true
+		txn.rLocks[mutex] = true
 	}
 
 	return r.value, nil
@@ -69,7 +80,7 @@ func (txn *Txn) GetInt(k string) (int, error) {
 
 	i, err := strconv.Atoi(v)
 	if err != nil {
-		return -1, errors.New("NotFound")
+		return -1, NotFoundError{key: k}
 	}
 
 	return i, nil
@@ -78,7 +89,7 @@ func (txn *Txn) GetInt(k string) (int, error) {
 func (txn *Txn) Update(k, v string) error {
 	r := txn.db.store[k]
 	if r == nil {
-		return errors.New("NotFound")
+		return NotFoundError{key: k}
 	}
 
 	mutex := &r.mutex

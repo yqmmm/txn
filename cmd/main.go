@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/yqmmm/txn"
 )
 
@@ -13,5 +15,11 @@ func main() {
 
 	s := txn.NewSmallBank(config)
 
-	s.Test()
+	for i := 0; i < 1000; i++ {
+		err := s.Test()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
 }
