@@ -12,6 +12,7 @@ import (
 type SmallBank struct {
 	db        *DB
 	customers []string
+	ids       []string
 }
 
 type SmallBankConfig struct {
@@ -25,6 +26,7 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 	s := &SmallBank{
 		db:        NewDb(),
 		customers: make([]string, 0),
+		ids:       make([]string, 0),
 	}
 
 	customers := make(map[string]bool)
@@ -40,6 +42,7 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 		for ids[id] {
 			id = randSeq(8)
 		}
+		ids[id] = true
 
 		// TODO: What number to use? seems like a math problem
 		s.db.Insert("account:"+name, id)
@@ -49,6 +52,10 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 
 	for c := range customers {
 		s.customers = append(s.customers, c)
+	}
+
+	for id := range ids {
+		s.ids = append(s.ids, id)
 	}
 
 	return s
@@ -75,13 +82,23 @@ func (s *SmallBank) Test() error {
 	return err
 }
 
-func (s *SmallBank) Check() {
+// TODO: record value and check correctness, not when benchmarking
+func (s *SmallBank) Check() error {
 	expected := len(s.customers) * 2000
 	total := 0
 
 	txn := s.db.Txn()
-	for _, c := range s.customers {
-		v, _ := txn.GetInt("saving:" + c)
+	for _, c := range s.ids {
+		v, err := txn.GetInt("saving:" + c)
+		if err != nil {
+			fmt.Println(err)
+		}
+		total += v
+
+		v, err = txn.GetInt("checking:" + c)
+		if err != nil {
+			fmt.Println(err)
+		}
 		total += v
 	}
 
@@ -90,6 +107,8 @@ func (s *SmallBank) Check() {
 	} else {
 		fmt.Printf("Wrong! expected :%d, got %d\n", expected, total)
 	}
+
+	return nil
 }
 
 func (db *DB) Bal(name string) (int, error) {
