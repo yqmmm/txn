@@ -2,12 +2,15 @@ package main
 
 import (
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/yqmmm/txn"
 )
 
 func main() {
+	concurrency := 8
+	timeout := 10 * time.Second
+
 	config := &txn.SmallBankConfig{
 		Customers:        1000,
 		HotspotCustomers: 10,
@@ -16,20 +19,38 @@ func main() {
 
 	s := txn.NewSmallBank(config)
 
-	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
+	stopChan := make(chan struct{})
+	resultChan := make(chan int)
+
+	for i := 0; i < concurrency; i++ {
 		go func() {
-			for i := 0; i < 1000; i++ {
-				err := s.Test()
-				if err != nil {
-					fmt.Println(err)
+			count := 0
+			for {
+				select {
+				case <-stopChan:
+					resultChan <- count
 					return
+
+				default:
+					err := s.Test()
+					if err != nil {
+						fmt.Println(err)
+						resultChan <- count
+						return
+					}
+					count++
 				}
 			}
-			wg.Done()
 		}()
 	}
 
-	wg.Wait()
+	time.Sleep(timeout)
+	close(stopChan)
+
+	result := 0
+	for i := 0; i < concurrency; i++ {
+		result += <-resultChan
+	}
+
+	fmt.Printf("Op: %v\n", result)
 }
