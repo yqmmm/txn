@@ -10,7 +10,7 @@ import (
 
 // TODO: investigate better string concat methods
 type SmallBank struct {
-	db        *DB
+	db        Database
 	customers []string
 	ids       []string
 }
@@ -21,10 +21,10 @@ type SmallBankConfig struct {
 	UniformOperation bool // false means 60% Bal operation
 }
 
-func NewSmallBank(config *SmallBankConfig) *SmallBank {
+func NewSmallBank(config *SmallBankConfig, db Database) *SmallBank {
 
 	s := &SmallBank{
-		db:        NewDb(),
+		db:        db,
 		customers: make([]string, 0),
 		ids:       make([]string, 0),
 	}
@@ -45,9 +45,9 @@ func NewSmallBank(config *SmallBankConfig) *SmallBank {
 		ids[id] = true
 
 		// TODO: What number to use? seems like a math problem
-		s.db.Insert("account:"+name, id)
-		s.db.Insert("saving:"+id, "1000")
-		s.db.Insert("checking:"+id, "1000")
+		db.Insert("account:"+name, id)
+		db.Insert("saving:"+id, "1000")
+		db.Insert("checking:"+id, "1000")
 	}
 
 	for c := range customers {
@@ -67,16 +67,16 @@ func (s *SmallBank) Test() error {
 	var err error
 	switch idx := rand.Intn(5); idx {
 	case 0:
-		_, err = s.db.Bal(name)
+		_, err = s.Bal(name)
 	case 1:
-		err = s.db.DepositChecking(name, rand.Intn(100))
+		err = s.DepositChecking(name, rand.Intn(100))
 	case 2:
-		err = s.db.TransactSaving(name, rand.Intn(100))
+		err = s.TransactSaving(name, rand.Intn(100))
 	case 3:
 		anotherName := s.customers[rand.Intn(len(s.customers))]
-		err = s.db.Amalgamate(name, anotherName)
+		err = s.Amalgamate(name, anotherName)
 	case 4:
-		err = s.db.WriteCheck(name, rand.Intn(100))
+		err = s.WriteCheck(name, rand.Intn(100))
 	}
 
 	return err
@@ -111,8 +111,8 @@ func (s *SmallBank) Check() error {
 	return nil
 }
 
-func (db *DB) Bal(name string) (int, error) {
-	txn := db.Txn()
+func (s *SmallBank) Bal(name string) (int, error) {
+	txn := s.db.Txn()
 	customerId, err := txn.Get("account:" + name)
 	if err != nil {
 		return -1, err
@@ -133,8 +133,8 @@ func (db *DB) Bal(name string) (int, error) {
 }
 
 // rollback if account do not exists or **value** is negative
-func (db *DB) DepositChecking(name string, value int) error {
-	txn := db.Txn()
+func (s *SmallBank) DepositChecking(name string, value int) error {
+	txn := s.db.Txn()
 
 	customerId, err := txn.Get("account:" + name)
 	if err != nil {
@@ -156,8 +156,8 @@ func (db *DB) DepositChecking(name string, value int) error {
 }
 
 // rollback if account do not exists or **result** is negative
-func (db *DB) TransactSaving(name string, value int) error {
-	txn := db.Txn()
+func (s *SmallBank) TransactSaving(name string, value int) error {
+	txn := s.db.Txn()
 
 	customerId, err := txn.Get("account:" + name)
 	if err != nil {
@@ -178,8 +178,8 @@ func (db *DB) TransactSaving(name string, value int) error {
 	return nil
 }
 
-func (db *DB) Amalgamate(from, to string) error {
-	txn := db.Txn()
+func (s *SmallBank) Amalgamate(from, to string) error {
+	txn := s.db.Txn()
 
 	fromId, err := txn.Get("account:" + from)
 	if err != nil {
@@ -225,8 +225,8 @@ func (db *DB) Amalgamate(from, to string) error {
 	return nil
 }
 
-func (db *DB) WriteCheck(name string, value int) error {
-	txn := db.Txn()
+func (s *SmallBank) WriteCheck(name string, value int) error {
+	txn := s.db.Txn()
 	customerId, err := txn.Get("account:" + name)
 	if err != nil {
 		return err
@@ -254,4 +254,11 @@ func (db *DB) WriteCheck(name string, value int) error {
 
 	txn.Commit()
 	return nil
+}
+
+func (s *SmallBank) handleError(err error) {
+	e, ok := err.(AbortError)
+	if ok {
+		fmt.Println(e)
+	}
 }

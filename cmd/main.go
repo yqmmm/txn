@@ -8,16 +8,18 @@ import (
 )
 
 func main() {
-	concurrency := 8
+	concurrency := 4
 	timeout := 10 * time.Second
 
 	config := &txn.SmallBankConfig{
-		Customers:        1000,
+		Customers:        100,
 		HotspotCustomers: 10,
 		UniformOperation: true,
 	}
 
-	s := txn.NewSmallBank(config)
+	db := txn.NewLockDB(txn.NewWaitDieLock)
+
+	s := txn.NewSmallBank(config, db)
 
 	stopChan := make(chan struct{})
 	resultChan := make(chan int)
