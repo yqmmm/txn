@@ -1,70 +1,107 @@
 package txn
 
-import (
-	"sync"
-)
+import "sync"
 
 type WaitDieLock struct {
-	mu      sync.Mutex
-	rw      sync.RWMutex
-	Readers map[*LockTxn]bool
 	writer  *LockTxn
+	readers map[*LockTxn]bool
+
+	mu            sync.Mutex
+	broadcastChan chan struct{}
 }
 
 func NewWaitDieLock() Lock {
 	return &WaitDieLock{
-		mu:      sync.Mutex{},
-		rw:      sync.RWMutex{},
-		Readers: make(map[*LockTxn]bool),
-		writer:  nil,
+		writer:        nil,
+		readers:       make(map[*LockTxn]bool),
+		mu:            sync.Mutex{},
+		broadcastChan: make(chan struct{}),
 	}
 }
 
-func (l *WaitDieLock) RLock(c *LockTxn) error {
-	l.mu.Lock()
-
-	if l.writer != nil && l.writer.Timestamp < c.Timestamp {
-		return AbortError{by: l.writer}
-	}
-
-	l.Readers[c] = true
-	l.mu.Unlock()
-	// TODO: this two is not atomic
-	l.rw.RLock()
-
-	return nil
+// Should be called with lock acquired
+func (l *WaitDieLock) listen() <-chan struct{} {
+	return l.broadcastChan
 }
 
-func (l *WaitDieLock) RUnlock(c *LockTxn) error {
-	l.mu.Lock()
-	delete(l.Readers, c)
-	l.mu.Unlock()
+// Should be called with lock acquired
+func (l *WaitDieLock) broadcast() {
+	newCh := make(chan struct{})
 
-	l.rw.RUnlock()
-	return nil
+	ch := l.broadcastChan
+	l.broadcastChan = newCh
+
+	close(ch)
 }
 
-func (l *WaitDieLock) Lock(c *LockTxn) error {
-	l.mu.Lock()
-	if l.writer != nil && l.writer.Timestamp < c.Timestamp {
-		return AbortError{by: l.writer}
-	}
+func (l *WaitDieLock) RLock(txn *LockTxn) error {
+	for {
+		l.mu.Lock()
+		if l.writer != nil {
+			if l.writer.Timestamp < txn.Timestamp {
+				l.mu.Unlock()
+				return AbortError{by: l.writer}
+			} // else: wait
+		} else {
+			l.mu.Unlock()
+			return nil
+		}
 
-	for client := range l.Readers {
-		if client.Timestamp < c.Timestamp {
-			return AbortError{by: l.writer}
+		broker := l.listen()
+		l.mu.Unlock()
+		select {
+		case <-broker:
 		}
 	}
-	l.mu.Unlock()
-	// TODO: this two is not atomic
-	l.rw.Lock()
-	l.writer = c // We can do this because we have the write lock?
+}
 
+func (l *WaitDieLock) RUnlock(txn *LockTxn) error {
+	l.mu.Lock()
+	delete(l.readers, txn)
+	l.broadcast()
+	l.mu.Unlock()
 	return nil
 }
 
-func (l *WaitDieLock) Unlock(c *LockTxn) error {
-	l.writer = nil // We can do this because we have the write lock?
-	l.rw.Unlock()
+func (l *WaitDieLock) Lock(txn *LockTxn) error {
+	for {
+		l.mu.Lock()
+		var abortBy *LockTxn
+		if l.writer != nil && l.writer.Timestamp < txn.Timestamp {
+			abortBy = l.writer
+		} else {
+			for reader := range l.readers {
+				if reader.Timestamp < txn.Timestamp {
+					abortBy = reader
+					break
+				}
+			}
+		}
+
+		if l.writer == nil && len(l.readers) == 0 {
+			l.writer = txn
+			l.mu.Unlock()
+			return nil
+		}
+
+		if abortBy != nil {
+			l.mu.Unlock()
+			return AbortError{by: abortBy}
+		}
+
+		broker := l.listen()
+		l.mu.Unlock()
+
+		select {
+		case <-broker:
+		}
+	}
+}
+
+func (l *WaitDieLock) Unlock(txn *LockTxn) error {
+	l.mu.Lock()
+	l.writer = nil
+	l.broadcast()
+	l.mu.Unlock()
 	return nil
 }

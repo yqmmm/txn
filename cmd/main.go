@@ -9,7 +9,7 @@ import (
 
 func main() {
 	concurrency := 4
-	timeout := 10 * time.Second
+	timeout := 3 * time.Second
 
 	config := &txn.SmallBankConfig{
 		Customers:        100,

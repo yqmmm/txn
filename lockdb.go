@@ -51,8 +51,12 @@ type LockTxn struct {
 }
 
 func (l *LockDB) Txn() Txn {
-	old := l.globalTimestamp
-	atomic.CompareAndSwapInt32(&l.globalTimestamp, old, old+1)
+	swapped := false
+	var old int32
+	for !swapped {
+		old = l.globalTimestamp
+		swapped = atomic.CompareAndSwapInt32(&l.globalTimestamp, old, old+1)
+	}
 	return &LockTxn{
 		kv:        l.kv,
 		rLocks:    make(map[Lock]bool),
