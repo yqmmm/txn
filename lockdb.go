@@ -22,6 +22,7 @@ type Lock interface {
 	Unlock(c *LockTxn) error
 	RLock(c *LockTxn) error
 	RUnlock(c *LockTxn) error
+	Upgrade(c *LockTxn) error
 }
 
 type lockRecord struct {
@@ -98,6 +99,7 @@ func (t *LockTxn) Get(k string) (string, error) {
 	if !t.rLocks[lock] && !t.wLocks[lock] {
 		err := lock.RLock(t)
 		if err != nil {
+			t.Commit()
 			return "", err
 		}
 	}
@@ -108,6 +110,7 @@ func (t *LockTxn) Get(k string) (string, error) {
 func (t *LockTxn) GetInt(k string) (int, error) {
 	v, err := t.Get(k)
 	if err != nil {
+		t.Commit()
 		return -1, err
 	}
 
@@ -127,16 +130,23 @@ func (t *LockTxn) Update(k, v string) error {
 
 	mutex := r.lock
 	if !t.wLocks[mutex] {
+		var err error
 		if t.rLocks[mutex] {
-			mutex.RUnlock(t)
+			err = mutex.Upgrade(t)
+			if err != nil {
+				t.Commit()
+				return err
+			}
 			delete(t.rLocks, mutex)
-		}
-		err := mutex.Lock(t) // TODO: promote lock, or this is wrong
-		if err != nil {
-			return err
+		} else {
+			err = mutex.Lock(t)
+			if err != nil {
+				t.Commit()
+			}
 		}
 		t.wLocks[mutex] = true
 	}
+
 	r.value = v
 	return nil
 }

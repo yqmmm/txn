@@ -64,8 +64,23 @@ func (l *WaitDieLock) RUnlock(txn *LockTxn) error {
 }
 
 func (l *WaitDieLock) Lock(txn *LockTxn) error {
+	return l.lock(txn, false)
+}
+
+// For upgrade, if return error, the reader lock is not released
+func (l *WaitDieLock) lock(txn *LockTxn, upgrade bool) error {
 	for {
 		l.mu.Lock()
+
+		if l.writer == nil && ((!upgrade && len(l.readers) == 0) || (upgrade && len(l.readers) == 1)) {
+			if upgrade {
+				delete(l.readers, txn)
+			}
+			l.writer = txn
+			l.mu.Unlock()
+			return nil
+		}
+
 		var abortBy *LockTxn
 		if l.writer != nil && l.writer.Timestamp < txn.Timestamp {
 			abortBy = l.writer
@@ -77,13 +92,6 @@ func (l *WaitDieLock) Lock(txn *LockTxn) error {
 				}
 			}
 		}
-
-		if l.writer == nil && len(l.readers) == 0 {
-			l.writer = txn
-			l.mu.Unlock()
-			return nil
-		}
-
 		if abortBy != nil {
 			l.mu.Unlock()
 			return AbortError{by: abortBy}
@@ -104,4 +112,8 @@ func (l *WaitDieLock) Unlock(txn *LockTxn) error {
 	l.broadcast()
 	l.mu.Unlock()
 	return nil
+}
+
+func (l *WaitDieLock) Upgrade(txn *LockTxn) error {
+	return l.lock(txn, true)
 }
