@@ -8,8 +8,8 @@ import (
 )
 
 func main() {
-	concurrency := 4
-	timeout := 3 * time.Second
+	concurrency := 8
+	timeout := 10 * time.Second
 
 	config := &txn.SmallBankConfig{
 		Customers:        100,
@@ -22,25 +22,31 @@ func main() {
 	s := txn.NewSmallBank(config, db)
 
 	stopChan := make(chan struct{})
-	resultChan := make(chan int)
+	type Result struct {
+		success int
+		failure int
+	}
+	resultChan := make(chan Result)
 
 	for i := 0; i < concurrency; i++ {
 		go func() {
-			count := 0
+			success, failure := 0, 0
 			for {
 				select {
 				case <-stopChan:
-					resultChan <- count
+					resultChan <- Result{
+						success: success,
+						failure: failure,
+					}
 					return
 
 				default:
 					err := s.Test()
 					if err != nil {
-						fmt.Println(err)
-						resultChan <- count
-						return
+						failure++
+					} else {
+						success++
 					}
-					count++
 				}
 			}
 		}()
@@ -49,10 +55,12 @@ func main() {
 	time.Sleep(timeout)
 	close(stopChan)
 
-	result := 0
+	success, failure := 0, 0
 	for i := 0; i < concurrency; i++ {
-		result += <-resultChan
+		result := <-resultChan
+		success += result.success
+		failure += result.failure
 	}
 
-	fmt.Printf("Op: %v\n", result)
+	fmt.Printf("Success: %v\nFailure: %v\n", success, failure)
 }

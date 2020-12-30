@@ -91,13 +91,13 @@ func (s *SmallBank) Check() error {
 	for _, c := range s.ids {
 		v, err := txn.GetInt("saving:" + c)
 		if err != nil {
-			fmt.Println(err)
+			return err
 		}
 		total += v
 
 		v, err = txn.GetInt("checking:" + c)
 		if err != nil {
-			fmt.Println(err)
+			return err
 		}
 		total += v
 	}
