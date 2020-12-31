@@ -10,9 +10,10 @@ import (
 
 // TODO: investigate better string concat methods
 type SmallBank struct {
-	db        Database
-	customers []string
-	ids       []string
+	db           Database
+	customers    []string
+	hotCustomers []string
+	ids          []string
 }
 
 type SmallBankConfig struct {
@@ -24,9 +25,10 @@ type SmallBankConfig struct {
 func NewSmallBank(config *SmallBankConfig, db Database) *SmallBank {
 
 	s := &SmallBank{
-		db:        db,
-		customers: make([]string, 0),
-		ids:       make([]string, 0),
+		db:           db,
+		customers:    make([]string, 0),
+		hotCustomers: make([]string, 0),
+		ids:          make([]string, 0),
 	}
 
 	customers := make(map[string]bool)
@@ -54,6 +56,18 @@ func NewSmallBank(config *SmallBankConfig, db Database) *SmallBank {
 		s.customers = append(s.customers, c)
 	}
 
+	hotCustomersMap := make(map[string]bool)
+	for len(hotCustomersMap) < config.HotspotCustomers {
+		c := s.customers[rand.Intn(len(s.customers))]
+		if !hotCustomersMap[c] {
+			hotCustomersMap[c] = true
+		}
+	}
+
+	for c := range hotCustomersMap {
+		s.hotCustomers = append(s.hotCustomers, c)
+	}
+
 	for id := range ids {
 		s.ids = append(s.ids, id)
 	}
@@ -62,7 +76,13 @@ func NewSmallBank(config *SmallBankConfig, db Database) *SmallBank {
 }
 
 func (s *SmallBank) Test() error {
-	name := s.customers[rand.Intn(len(s.customers))]
+
+	var name string
+	if rand.Intn(10) < 9 {
+		name = s.hotCustomers[rand.Intn(len(s.hotCustomers))]
+	} else {
+		name = s.customers[rand.Intn(len(s.customers))]
+	}
 
 	var err error
 	switch idx := rand.Intn(5); idx {

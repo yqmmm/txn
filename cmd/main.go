@@ -12,7 +12,7 @@ func main() {
 	timeout := 10 * time.Second
 
 	config := &txn.SmallBankConfig{
-		Customers:        100,
+		Customers:        1000,
 		HotspotCustomers: 10,
 		UniformOperation: true,
 	}
