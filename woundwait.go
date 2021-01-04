@@ -2,7 +2,7 @@ package txn
 
 import "sync"
 
-type WaitDieLock struct {
+type WoundWaitLock struct {
 	writer  *LockTxn
 	readers map[*LockTxn]bool
 
@@ -10,8 +10,8 @@ type WaitDieLock struct {
 	broadcastChan chan struct{}
 }
 
-func NewWaitDieLock() Lock {
-	return &WaitDieLock{
+func NewWoundWaitLock() Lock {
+	return &WoundWaitLock{
 		writer:        nil,
 		readers:       make(map[*LockTxn]bool),
 		mu:            sync.Mutex{},
@@ -20,12 +20,12 @@ func NewWaitDieLock() Lock {
 }
 
 // Should be called with lock acquired
-func (l *WaitDieLock) listen() <-chan struct{} {
+func (l *WoundWaitLock) listen() <-chan struct{} {
 	return l.broadcastChan
 }
 
 // Should be called with lock acquired
-func (l *WaitDieLock) broadcast() {
+func (l *WoundWaitLock) broadcast() {
 	newCh := make(chan struct{})
 
 	ch := l.broadcastChan
@@ -34,13 +34,27 @@ func (l *WaitDieLock) broadcast() {
 	close(ch)
 }
 
-func (l *WaitDieLock) RLock(txn *LockTxn) error {
+func (txn *LockTxn) CheckAbort() error {
+	select {
+	case by := <-txn.StopCh:
+		return AbortError{
+			by: by,
+		}
+	default:
+		return nil
+	}
+}
+
+func (l *WoundWaitLock) RLock(txn *LockTxn) error {
+	//if err := txn.CheckAbort(); err != nil {
+	//	return err
+	//}
+
 	for {
 		l.mu.Lock()
 		if l.writer != nil {
-			if l.writer.Timestamp < txn.Timestamp {
-				l.mu.Unlock()
-				return AbortError{by: l.writer}
+			if l.writer.Timestamp > txn.Timestamp {
+				l.writer.StopCh <- txn
 			} // else: wait
 		} else {
 			l.readers[txn] = true
@@ -51,12 +65,14 @@ func (l *WaitDieLock) RLock(txn *LockTxn) error {
 		broker := l.listen()
 		l.mu.Unlock()
 		select {
+		case by := <-txn.StopCh:
+			return AbortError{by: by}
 		case <-broker:
 		}
 	}
 }
 
-func (l *WaitDieLock) RUnlock(txn *LockTxn) error {
+func (l *WoundWaitLock) RUnlock(txn *LockTxn) error {
 	l.mu.Lock()
 	delete(l.readers, txn)
 	l.broadcast()
@@ -64,12 +80,16 @@ func (l *WaitDieLock) RUnlock(txn *LockTxn) error {
 	return nil
 }
 
-func (l *WaitDieLock) Lock(txn *LockTxn) error {
+func (l *WoundWaitLock) Lock(txn *LockTxn) error {
 	return l.lock(txn, false)
 }
 
 // For upgrade, if return error, the reader lock is not released
-func (l *WaitDieLock) lock(txn *LockTxn, upgrade bool) error {
+func (l *WoundWaitLock) lock(txn *LockTxn, upgrade bool) error {
+	//if err := txn.CheckAbort(); err != nil {
+	//	return err
+	//}
+
 	for {
 		l.mu.Lock()
 
@@ -82,32 +102,28 @@ func (l *WaitDieLock) lock(txn *LockTxn, upgrade bool) error {
 			return nil
 		}
 
-		var abortBy *LockTxn
-		if l.writer != nil && l.writer.Timestamp < txn.Timestamp {
-			abortBy = l.writer
+		if l.writer != nil && l.writer.Timestamp > txn.Timestamp {
+			l.writer.StopCh <- txn
 		} else {
 			for reader := range l.readers {
-				if reader.Timestamp < txn.Timestamp {
-					abortBy = reader
-					break
+				if reader.Timestamp > txn.Timestamp {
+					reader.StopCh <- txn
 				}
 			}
-		}
-		if abortBy != nil {
-			l.mu.Unlock()
-			return AbortError{by: abortBy}
 		}
 
 		broker := l.listen()
 		l.mu.Unlock()
 
 		select {
+		case by := <-txn.StopCh:
+			return AbortError{by: by}
 		case <-broker:
 		}
 	}
 }
 
-func (l *WaitDieLock) Unlock(txn *LockTxn) error {
+func (l *WoundWaitLock) Unlock(txn *LockTxn) error {
 	l.mu.Lock()
 	l.writer = nil
 	l.broadcast()
@@ -115,6 +131,6 @@ func (l *WaitDieLock) Unlock(txn *LockTxn) error {
 	return nil
 }
 
-func (l *WaitDieLock) Upgrade(txn *LockTxn) error {
+func (l *WoundWaitLock) Upgrade(txn *LockTxn) error {
 	return l.lock(txn, true)
 }

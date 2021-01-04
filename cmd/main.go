@@ -12,12 +12,13 @@ func main() {
 	timeout := 10 * time.Second
 
 	config := &txn.SmallBankConfig{
-		Customers:        1000,
-		HotspotCustomers: 10,
+		Customers:        1800,
+		HotspotCustomers: 30,
 		UniformOperation: true,
 	}
 
-	db := txn.NewLockDB(txn.NewWaitDieLock)
+	//db := txn.NewLockDB(txn.NewWaitDieLock)
+	db := txn.NewLockDB(txn.NewWoundWaitLock)
 
 	s := txn.NewSmallBank(config, db)
 

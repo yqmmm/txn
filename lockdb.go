@@ -13,10 +13,6 @@ func (e AbortError) Error() string {
 	return "Aborted by" + strconv.Itoa(int(e.by.Timestamp))
 }
 
-//type LockClient struct {
-//	Timestamp int
-//}
-
 type Lock interface {
 	Lock(c *LockTxn) error
 	Unlock(c *LockTxn) error
@@ -49,6 +45,7 @@ type LockTxn struct {
 	rLocks    map[Lock]bool
 	wLocks    map[Lock]bool
 	Timestamp int32
+	StopCh    chan *LockTxn // TODO: using channel may still deadlock
 }
 
 func (l *LockDB) Txn() Txn {
@@ -63,6 +60,7 @@ func (l *LockDB) Txn() Txn {
 		rLocks:    make(map[Lock]bool),
 		wLocks:    make(map[Lock]bool),
 		Timestamp: old + 1, // TODO
+		StopCh:    make(chan *LockTxn, 16),
 	}
 }
 
@@ -102,6 +100,7 @@ func (t *LockTxn) Get(k string) (string, error) {
 			t.Commit()
 			return "", err
 		}
+		t.rLocks[lock] = true
 	}
 
 	return r.value, nil
@@ -110,7 +109,6 @@ func (t *LockTxn) Get(k string) (string, error) {
 func (t *LockTxn) GetInt(k string) (int, error) {
 	v, err := t.Get(k)
 	if err != nil {
-		t.Commit()
 		return -1, err
 	}
 
@@ -142,6 +140,7 @@ func (t *LockTxn) Update(k, v string) error {
 			err = mutex.Lock(t)
 			if err != nil {
 				t.Commit()
+				return err
 			}
 		}
 		t.wLocks[mutex] = true
