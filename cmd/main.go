@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"time"
 
@@ -12,13 +13,23 @@ func main() {
 	timeout := 10 * time.Second
 
 	config := &txn.SmallBankConfig{
-		Customers:        1800,
-		HotspotCustomers: 30,
+		Customers:        100,
+		HotspotCustomers: 10,
 		UniformOperation: true,
 	}
 
-	//db := txn.NewLockDB(txn.NewWaitDieLock)
-	db := txn.NewLockDB(txn.NewWoundWaitLock)
+	flag.IntVar(&config.Customers, "customers", 1800, "Number of customers")
+	flag.IntVar(&config.Customers, "hot", 30, "Number of hot customers")
+	waitDie := flag.Bool("wait-die", true, "wait-die, or else wound-wait")
+
+	flag.Parse()
+
+	var db *txn.LockDB
+	if *waitDie {
+		db = txn.NewLockDB(txn.NewWaitDieLock)
+	} else {
+		db = txn.NewLockDB(txn.NewWoundWaitLock)
+	}
 
 	s := txn.NewSmallBank(config, db)
 
@@ -63,5 +74,5 @@ func main() {
 		failure += result.failure
 	}
 
-	fmt.Printf("Success: %v\nFailure: %v\n", success, failure)
+	fmt.Printf("%v,%v\n", success, failure)
 }
