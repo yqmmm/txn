@@ -22,13 +22,13 @@ func main() {
 
 	flag.Parse()
 
-	var db *txn.LockDB
+	var lockType string
 	if *waitDie {
-		db = txn.NewLockDB(txn.NewWaitDieLock)
+		lockType = txn.WaitDie
 	} else {
-		db = txn.NewLockDB(txn.NewWoundWaitLock)
+		lockType = txn.WoundWait
 	}
 
-	success, failure := txn.Benchmark(config, db)
+	success, failure := txn.Benchmark(config, lockType)
 	fmt.Printf("Success:%v\nFailure:%v\n", success, failure)
 }

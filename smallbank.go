@@ -286,7 +286,14 @@ func (s *SmallBank) handleError(err error) {
 	}
 }
 
-func Benchmark(config *SmallBankConfig, db *LockDB) (int, int) {
+func Benchmark(config *SmallBankConfig, lockType string) (int, int) {
+	var db *LockDB
+	switch lockType {
+	case WaitDie:
+		db = NewLockDB(NewWaitDieLock)
+	case WoundWait:
+		db = NewLockDB(NewWoundWaitLock)
+	}
 
 	s := NewSmallBank(config, db)
 

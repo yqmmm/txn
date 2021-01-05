@@ -54,7 +54,10 @@ func (l *WoundWaitLock) RLock(txn *LockTxn) error {
 		l.mu.Lock()
 		if l.writer != nil {
 			if l.writer.Timestamp > txn.Timestamp {
-				l.writer.StopCh <- txn
+				select {
+				case l.writer.StopCh <- txn:
+				default:
+				}
 			} // else: wait
 		} else {
 			l.readers[txn] = true
@@ -103,11 +106,17 @@ func (l *WoundWaitLock) lock(txn *LockTxn, upgrade bool) error {
 		}
 
 		if l.writer != nil && l.writer.Timestamp > txn.Timestamp {
-			l.writer.StopCh <- txn
+			select {
+			case l.writer.StopCh <- txn:
+			default:
+			}
 		} else {
 			for reader := range l.readers {
 				if reader.Timestamp > txn.Timestamp {
-					reader.StopCh <- txn
+					select {
+					case reader.StopCh <- txn:
+					default:
+					}
 				}
 			}
 		}

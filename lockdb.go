@@ -65,7 +65,7 @@ func (l *LockDB) Txn() Txn {
 		rLocks:    make(map[Lock]bool),
 		wLocks:    make(map[Lock]bool),
 		Timestamp: old + 1, // TODO
-		StopCh:    make(chan *LockTxn, 16),
+		StopCh:    make(chan *LockTxn, 1),
 	}
 }
 

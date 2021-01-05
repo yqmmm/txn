@@ -10,23 +10,19 @@ import (
 	"github.com/yqmmm/txn"
 )
 
+var hot = []int{10, 50, 100, 200, 500, 1000}
+
 func main() {
-	lockType := txn.WaitDie
+	//lockType := txn.WaitDie
+	lockType := txn.WoundWait
 	config := txn.SmallBankConfig{
-		Customers:        1800,
+		Customers:        18000,
 		HotspotCustomers: 100,
 		Concurrency:      8,
 		Timeout:          10 * time.Second,
 	}
-	var db *txn.LockDB
-	switch lockType {
-	case txn.WaitDie:
-		db = txn.NewLockDB(txn.NewWaitDieLock)
-	case txn.WoundWait:
-		db = txn.NewLockDB(txn.NewWoundWaitLock)
-	}
 
-	f, err := os.OpenFile("result.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile("results/results.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -34,17 +30,20 @@ func main() {
 	w := csv.NewWriter(f)
 	//w.Write([]string{"type", "customers", "hot", "concurrency", "timeout", "success", "failure"})
 
-	succ, fail := txn.Benchmark(&config, db)
+	for _, h := range hot {
+		config.HotspotCustomers = h
+		succ, fail := txn.Benchmark(&config, lockType)
 
-	w.Write([]string{
-		lockType,
-		strconv.Itoa(config.Customers),
-		strconv.Itoa(config.HotspotCustomers),
-		strconv.Itoa(config.Concurrency),
-		fmt.Sprintf("%f", config.Timeout.Seconds()),
-		strconv.Itoa(succ),
-		strconv.Itoa(fail),
-	})
+		w.Write([]string{
+			lockType,
+			strconv.Itoa(config.Customers),
+			strconv.Itoa(config.HotspotCustomers),
+			strconv.Itoa(config.Concurrency),
+			fmt.Sprintf("%f", config.Timeout.Seconds()),
+			strconv.Itoa(succ),
+			strconv.Itoa(fail),
+		})
+	}
 
 	w.Flush()
 	f.Close()
