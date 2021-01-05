@@ -21,6 +21,11 @@ type Lock interface {
 	Upgrade(c *LockTxn) error
 }
 
+const (
+	WaitDie   = "wait-die"
+	WoundWait = "wound-wait"
+)
+
 type lockRecord struct {
 	lock  Lock
 	value string
@@ -28,14 +33,14 @@ type lockRecord struct {
 
 type LockDB struct {
 	kv              map[string]*lockRecord
-	newLock         func() Lock
+	NewLock         func() Lock
 	globalTimestamp int32
 }
 
 func NewLockDB(newLock func() Lock) *LockDB {
 	return &LockDB{
 		kv:              make(map[string]*lockRecord),
-		newLock:         newLock,
+		NewLock:         newLock,
 		globalTimestamp: 1,
 	}
 }
@@ -68,7 +73,7 @@ func (l *LockDB) Insert(k, v string) {
 	r := l.kv[k]
 	if r == nil {
 		r = &lockRecord{
-			lock: l.newLock(), // TODO
+			lock: l.NewLock(), // TODO
 		}
 	}
 	r.value = v

@@ -3,6 +3,7 @@ package txn
 import (
 	"fmt"
 	"math/rand"
+	"time"
 )
 
 // Table: account, saving, checking
@@ -18,8 +19,10 @@ type SmallBank struct {
 
 type SmallBankConfig struct {
 	Customers        int
-	HotspotCustomers int  // 90% operation operates on hotspot customers
-	UniformOperation bool // false means 60% Bal operation
+	HotspotCustomers int // 90% operation operates on hotspot customers
+
+	Concurrency int
+	Timeout     time.Duration
 }
 
 func NewSmallBank(config *SmallBankConfig, db Database) *SmallBank {
@@ -281,4 +284,52 @@ func (s *SmallBank) handleError(err error) {
 	if ok {
 		fmt.Println(e)
 	}
+}
+
+func Benchmark(config *SmallBankConfig, db *LockDB) (int, int) {
+
+	s := NewSmallBank(config, db)
+
+	stopChan := make(chan struct{})
+	type Result struct {
+		success int
+		failure int
+	}
+	resultChan := make(chan Result)
+
+	for i := 0; i < config.Concurrency; i++ {
+		go func() {
+			success, failure := 0, 0
+			for {
+				select {
+				case <-stopChan:
+					resultChan <- Result{
+						success: success,
+						failure: failure,
+					}
+					return
+
+				default:
+					err := s.Test()
+					if err != nil {
+						failure++
+					} else {
+						success++
+					}
+				}
+			}
+		}()
+	}
+
+	time.Sleep(config.Timeout)
+	close(stopChan)
+
+	success, failure := 0, 0
+	for i := 0; i < config.Concurrency; i++ {
+		result := <-resultChan
+		success += result.success
+		failure += result.failure
+	}
+
+	return success, failure
 }
